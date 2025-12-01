@@ -203,6 +203,29 @@ async function callHFSummarizer(hfToken, userText) {
     const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     if (!resp.ok) {
       const txt = await resp.text();
+      // If router returns 404 Not Found (model not available) or 401 (unauthorized),
+      // try a fallback public summarization model via the router (no api-inference fallback - deprecated).
+      if (resp.status === 404 || resp.status === 401) {
+        console.warn(`Router returned ${resp.status} for model ${modelId}; trying fallback summarization model via router`);
+        const fallbackModel = 'sshleifer/distilbart-cnn-12-6';
+        const fallbackUrl = `https://router.huggingface.co/models/${fallbackModel}/infer`;
+        const fallbackResp = await fetch(fallbackUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+        if (!fallbackResp.ok) {
+          const ftxt = await fallbackResp.text();
+          // If fallback also fails, report combined info
+          throw new Error(`Hugging Face summarizer error ${resp.status}: ${txt} ; fallback ${fallbackResp.status}: ${ftxt}`);
+        }
+        const fdata = await fallbackResp.json();
+        if (!fdata) return JSON.stringify(fdata);
+        if (fdata.generated_text) return fdata.generated_text;
+        if (Array.isArray(fdata) && fdata[0]) {
+          if (fdata[0].generated_text) return fdata[0].generated_text;
+          if (typeof fdata[0] === 'string') return fdata[0];
+        }
+        if (fdata.summary_text) return fdata.summary_text;
+        if (fdata.data && Array.isArray(fdata.data) && fdata.data[0] && fdata.data[0].generated_text) return fdata.data[0].generated_text;
+        return JSON.stringify(fdata);
+      }
       throw new Error(`Hugging Face summarizer error ${resp.status}: ${txt}`);
     }
     const data = await resp.json();
