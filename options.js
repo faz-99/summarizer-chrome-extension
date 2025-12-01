@@ -5,15 +5,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const saveBtn = document.getElementById('saveBtn');
   const clearKeyBtn = document.getElementById('clearKeyBtn');
   const proxyUrlEl = document.getElementById('proxyUrl');
+  const useDoHEl = document.getElementById('useDoH');
 
   // Load saved. If an apiKey exists, mask the input and disable direct editing to avoid accidental exposure
-  chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl'], (cfg) => {
+  chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl', 'useDoH'], (cfg) => {
     if (cfg && cfg.apiKey) {
       apiKeyEl.value = '************';
       apiKeyEl.disabled = true;
     }
     if (cfg && cfg.model) modelEl.value = cfg.model;
     if (cfg && cfg.proxyUrl) proxyUrlEl.value = cfg.proxyUrl;
+    if (cfg && typeof cfg.useDoH !== 'undefined') useDoHEl.checked = !!cfg.useDoH;
   });
 
   saveBtn.addEventListener('click', () => {
@@ -30,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    chrome.storage.sync.set({ apiKey: raw, model, proxyUrl }, () => {
+    chrome.storage.sync.set({ apiKey: raw, model, proxyUrl, useDoH: !!useDoHEl.checked }, () => {
       saveBtn.textContent = 'Saved';
       // After saving, mask and disable the input
       apiKeyEl.value = '************';

@@ -38,9 +38,43 @@ chrome.runtime.onInstalled.addListener(() => {
 // Helper: call OpenRouter chat completions (or forward via a user-provided proxyUrl)
 // If proxyUrl is provided, the request will be POSTed to that URL and the proxy should
 // forward the request to OpenRouter using a server-side API key.
-async function callOpenRouter(apiKey, model, userPrompt, proxyUrl) {
+// DoH resolver using Cloudflare's JSON DNS API
+async function resolveDoH(host) {
+  try {
+    const url = `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=A`;
+    const resp = await fetch(url, { headers: { Accept: 'application/dns-json' } });
+    if (!resp.ok) {
+      console.warn('DoH lookup returned non-OK', resp.status);
+      return null;
+    }
+    const data = await resp.json();
+    // data.Answer may contain records with "data" as IPs
+    const answers = (data && data.Answer && Array.isArray(data.Answer)) ? data.Answer.map(a => a.data) : [];
+    return answers;
+  } catch (err) {
+    console.warn('DoH resolve error', err);
+    return null;
+  }
+}
+
+async function callOpenRouter(apiKey, model, userPrompt, proxyUrl, useDoH) {
   // If no apiKey and no proxyUrl, we can't call OpenRouter
   if (!apiKey && !proxyUrl) throw new Error('API key not set in Options and no proxy configured');
+
+  // Optionally perform a DoH resolution and log the results. This can help detect ISP DNS poisoning.
+  if (useDoH) {
+    try {
+      const host = (proxyUrl && proxyUrl.length) ? new URL(proxyUrl).hostname : new URL(OPENROUTER_URL).hostname;
+      const addresses = await resolveDoH(host);
+      if (addresses && addresses.length) {
+        console.log(`DoH resolved ${host} ->`, addresses);
+      } else {
+        console.log('DoH did not return addresses for', host);
+      }
+    } catch (err) {
+      console.warn('DoH pre-resolve failed', err);
+    }
+  }
 
   const body = {
     model: model,
@@ -161,15 +195,16 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       const selection = info.selectionText || '';
       if (!selection) return;
 
-  // get API key, model & optional proxy URL
-  const cfg = await chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl']);
+  // get API key, model & optional proxy URL and DoH flag
+  const cfg = await chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl', 'useDoH']);
   const apiKey = cfg.apiKey;
   const model = cfg.model || 'mistralai/mistral-7b-instruct';
   const proxyUrl = cfg.proxyUrl;
+  const useDoH = !!cfg.useDoH;
 
       const prompt = `Summarize the following text:\n\n${selection}`;
       // call API
-  const result = await callOpenRouter(apiKey, model, prompt, proxyUrl);
+  const result = await callOpenRouter(apiKey, model, prompt, proxyUrl, useDoH);
 
       // send to content script to show overlay
       chrome.tabs.sendMessage(tab.id, { action: 'show_overlay', content: result });
@@ -196,13 +231,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // msg: { prompt, selection }
     (async () => {
       try {
-  const cfg = await chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl']);
+  const cfg = await chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl', 'useDoH']);
   const apiKey = cfg.apiKey;
   const model = cfg.model || 'mistralai/mistral-7b-instruct';
   const proxyUrl = cfg.proxyUrl;
+  const useDoH = !!cfg.useDoH;
 
   const combined = msg.prompt ? `${msg.prompt}\n\n${msg.selection || ''}` : (msg.selection || '');
-  const result = await callOpenRouter(apiKey, model, combined, proxyUrl);
+  const result = await callOpenRouter(apiKey, model, combined, proxyUrl, useDoH);
         sendResponse({ ok: true, result });
       } catch (err) {
         sendResponse({ ok: false, error: err.message });
