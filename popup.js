@@ -39,8 +39,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!selection) { outputEl.textContent = 'No selection'; return; }
     outputEl.textContent = 'Working...';
 
-    const prompt = `Summarize the following text:\n\n${selection}`;
-    chrome.runtime.sendMessage({ action: 'call_api', prompt, selection }, (resp) => {
+    // Use dedicated summarization action so background uses the HF summarizer
+    chrome.runtime.sendMessage({ action: 'summarize', selection }, (resp) => {
+      // our summarize action uses sendResponse to return { ok:true, result }
       if (!resp) { outputEl.textContent = 'No response from background'; return; }
       if (resp.ok) outputEl.textContent = resp.result;
       else outputEl.textContent = `Error: ${resp.error}`;

@@ -187,6 +187,73 @@ async function callHuggingFaceFallback(model, userPrompt) {
   }
 }
 
+// Dedicated Hugging Face summarizer using facebook/bart-large-cnn
+async function callHFSummarizer(hfToken, userText) {
+  if (!hfToken) throw new Error('Hugging Face token not set in Options');
+
+  // Helper to call router for a given input and return extracted text
+  async function callRouter(inputText) {
+    const modelId = 'facebook/bart-large-cnn';
+    const url = `https://router.huggingface.co/models/${modelId}/infer`;
+    const body = { inputs: `Summarize the following text in 3 concise sentences:\n${inputText}` };
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (hfToken) headers['Authorization'] = 'Bearer ' + hfToken;
+
+    const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!resp.ok) {
+      const txt = await resp.text();
+      throw new Error(`Hugging Face summarizer error ${resp.status}: ${txt}`);
+    }
+    const data = await resp.json();
+
+    // Extract summary text from common shapes
+    if (!data) return '';
+    if (typeof data === 'string') return data;
+    if (data.generated_text) return data.generated_text;
+    if (Array.isArray(data) && data[0]) {
+      if (typeof data[0] === 'string') return data[0];
+      if (data[0].generated_text) return data[0].generated_text;
+      if (data[0].summary_text) return data[0].summary_text;
+      if (data[0].data && data[0].data[0] && data[0].data[0].generated_text) return data[0].data[0].generated_text;
+    }
+    if (data.summary_text) return data.summary_text;
+    if (data.data && Array.isArray(data.data) && data.data[0] && data.data[0].summary_text) return data.data[0].summary_text;
+
+    return JSON.stringify(data);
+  }
+
+  // Respect input size: split into chunks if very large (simple character-based split)
+  const MAX_CHUNK_CHARS = 4000; // conservative default
+  const chunks = [];
+  for (let i = 0; i < userText.length; i += MAX_CHUNK_CHARS) {
+    chunks.push(userText.slice(i, i + MAX_CHUNK_CHARS));
+  }
+
+  try {
+    // If single chunk, call once
+    if (chunks.length === 1) {
+      const s = await callRouter(chunks[0]);
+      return s;
+    }
+
+    // Multiple chunks: summarize each, then summarize the concatenation
+    const partials = [];
+    for (const c of chunks) {
+      const p = await callRouter(c);
+      partials.push(p);
+    }
+
+    const combined = partials.join('\n\n');
+    // Final pass to get unified 3-sentence summary
+    const final = await callRouter(combined);
+    return final;
+  } catch (err) {
+    // Bubble up a clearer error
+    throw new Error(`Hugging Face summarizer failed: ${err.message || err}`);
+  }
+}
+
 // Handle context menu clicks
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   try {
@@ -195,17 +262,23 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (info.menuItemId === 'summarize_selection') {
       const selection = info.selectionText || '';
       if (!selection) return;
-
-  // get API key, model & optional proxy URL and DoH flag
-  const cfg = await chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl', 'useDoH']);
-  const apiKey = cfg.apiKey;
-  const model = cfg.model || 'mistralai/mistral-7b-instruct';
-  const proxyUrl = cfg.proxyUrl;
-  const useDoH = !!cfg.useDoH;
-
-      const prompt = `Summarize the following text:\n\n${selection}`;
-      // call API
-  const result = await callOpenRouter(apiKey, model, prompt, proxyUrl, useDoH);
+        // get HF token and prefer using HF summarizer for dedicated summarization
+        const cfg = await chrome.storage.sync.get(['hfToken', 'apiKey', 'model', 'proxyUrl', 'useDoH']);
+        const hfToken = cfg.hfToken;
+        // Use HF summarizer for dedicated summaries
+        let result;
+        try {
+          result = await callHFSummarizer(hfToken, selection);
+        } catch (hfErr) {
+          // fallback to OpenRouter/other flow if HF summarizer fails
+          console.warn('HF summarizer failed, falling back to OpenRouter/other:', hfErr);
+          const apiKey = cfg.apiKey;
+          const model = cfg.model || 'mistralai/mistral-7b-instruct';
+          const proxyUrl = cfg.proxyUrl;
+          const useDoH = !!cfg.useDoH;
+          const prompt = `Summarize the following text:\n\n${selection}`;
+          result = await callOpenRouter(apiKey, model, prompt, proxyUrl, useDoH);
+        }
 
       // send to content script to show overlay
       chrome.tabs.sendMessage(tab.id, { action: 'show_overlay', content: result });
@@ -228,18 +301,48 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.action) return;
 
+  if (msg.action === 'summarize') {
+    (async () => {
+      try {
+        const cfg = await chrome.storage.sync.get(['hfToken']);
+        const hfToken = cfg.hfToken;
+        const selection = msg.selection || '';
+        const result = await callHFSummarizer(hfToken, selection);
+        sendResponse({ ok: true, result });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
   if (msg.action === 'call_api') {
     // msg: { prompt, selection }
     (async () => {
       try {
-  const cfg = await chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl', 'useDoH']);
-  const apiKey = cfg.apiKey;
-  const model = cfg.model || 'mistralai/mistral-7b-instruct';
-  const proxyUrl = cfg.proxyUrl;
-  const useDoH = !!cfg.useDoH;
+        const cfg = await chrome.storage.sync.get(['hfToken', 'apiKey', 'model', 'proxyUrl', 'useDoH']);
+        const hfToken = cfg.hfToken;
+        const apiKey = cfg.apiKey;
+        const model = cfg.model || 'mistralai/mistral-7b-instruct';
+        const proxyUrl = cfg.proxyUrl;
+        const useDoH = !!cfg.useDoH;
 
-  const combined = msg.prompt ? `${msg.prompt}\n\n${msg.selection || ''}` : (msg.selection || '');
-  const result = await callOpenRouter(apiKey, model, combined, proxyUrl, useDoH);
+        const combined = msg.prompt ? `${msg.prompt}\n\n${msg.selection || ''}` : (msg.selection || '');
+
+        // If the incoming request is a summarization-style prompt (we detect by leading Summarize phrase),
+        // prefer the dedicated HF summarizer. Otherwise use existing callOpenRouter flow.
+        let result;
+        const isSummarize = typeof msg.prompt === 'string' && msg.prompt.trim().toLowerCase().startsWith('summarize');
+        if (isSummarize) {
+          try {
+            result = await callHFSummarizer(hfToken, msg.selection || '');
+          } catch (e) {
+            console.warn('HF summarizer failed in message flow, falling back to OpenRouter:', e);
+            result = await callOpenRouter(apiKey, model, combined, proxyUrl, useDoH);
+          }
+        } else {
+          result = await callOpenRouter(apiKey, model, combined, proxyUrl, useDoH);
+        }
         sendResponse({ ok: true, result });
       } catch (err) {
         sendResponse({ ok: false, error: err.message });
