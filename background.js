@@ -21,7 +21,7 @@ chrome.runtime.onInstalled.addListener(() => {
   // If no API key is set, store a preset key so users don't need to paste it.
   // NOTE: This embeds a key into the extension's storage on install. Remove or change if you don't want
   // the key persisted in users' Chrome sync storage.
-  const PRESET_API_KEY = 'sk-or-REDACTED-PRESET-KEY';
+  const PRESET_API_KEY = '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';
   try {
     chrome.storage.sync.get(['apiKey'], (cfg) => {
       if (!cfg || !cfg.apiKey) {

@@ -43,4 +43,25 @@ document.addEventListener('DOMContentLoaded', () => {
       apiKeyEl.focus();
     });
   });
+
+  // Test connection button: asks background to run a tiny test prompt using stored key
+  const testConnBtn = document.getElementById('testConnBtn');
+  const testResult = document.getElementById('testResult');
+  if (testConnBtn) {
+    testConnBtn.addEventListener('click', () => {
+      testResult.textContent = 'Testing...';
+      // We send a short prompt to the background which will perform the fetch using stored apiKey
+      chrome.runtime.sendMessage({ action: 'call_api', prompt: 'Please reply with: CONNECTION_OK', selection: '' }, (resp) => {
+        if (!resp) {
+          testResult.textContent = 'No response from background (check service worker console)';
+          return;
+        }
+        if (resp.ok) {
+          testResult.textContent = `OK — API returned:\n\n${resp.result}`;
+        } else {
+          testResult.textContent = `ERROR — ${resp.error}`;
+        }
+      });
+    });
+  }
 });
