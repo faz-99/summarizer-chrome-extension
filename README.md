@@ -22,6 +22,10 @@ Notes
 - Make sure your OpenRouter plan/model allows the chosen model. If you don't have an OpenRouter key, sign up at https://openrouter.ai and follow their docs.
 - The extension stores your key in `chrome.storage.sync`.
 
+Proxy (optional)
+
+- If your network blocks OpenRouter or you prefer to keep the API key on a server, deploy a small reverse proxy (for example a Vercel serverless function) that forwards requests to OpenRouter and stores the API key in server environment variables.
+- A proxy example is included in `proxy/vercel/api/index.js` and `proxy/README.md`. Deploy that and set the Proxy URL in the Options page. When a Proxy URL is set the extension will POST to the proxy and the proxy will forward to OpenRouter using the server-side key.
 Files
 - `manifest.json` - extension manifest (v3)
 - `background.js` - service worker, context menus, API calls
