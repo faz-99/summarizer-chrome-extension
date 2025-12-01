@@ -61,13 +61,29 @@ async function callOpenRouter(apiKey, model, userPrompt) {
   } catch (networkErr) {
     // This usually surfaces as "TypeError: Failed to fetch" when fetch cannot reach the host
     console.error('Network/fetch error calling OpenRouter:', networkErr);
-    throw new Error(`Network error when calling OpenRouter: ${networkErr.message || networkErr}`);
+    // Try fallback to Hugging Face Inference API as a quick workaround
+    try {
+      const hf = await callHuggingFaceFallback(model, userPrompt);
+      console.warn('Falling back to Hugging Face inference API result');
+      return hf;
+    } catch (hfErr) {
+      console.error('Hugging Face fallback also failed:', hfErr);
+      throw new Error(`Network error when calling OpenRouter: ${networkErr.message || networkErr}`);
+    }
   }
 
   if (!resp.ok) {
     const txt = await resp.text();
     console.error('OpenRouter returned non-OK:', resp.status, txt);
-    throw new Error(`OpenRouter error ${resp.status}: ${txt}`);
+    // If OpenRouter returns a server error or other non-OK, attempt HF fallback
+    try {
+      const hf = await callHuggingFaceFallback(model, userPrompt);
+      console.warn('OpenRouter non-OK; falling back to Hugging Face inference API result');
+      return hf;
+    } catch (hfErr) {
+      console.error('Hugging Face fallback also failed after non-OK OpenRouter:', hfErr);
+      throw new Error(`OpenRouter error ${resp.status}: ${txt}`);
+    }
   }
 
   const data = await resp.json();
@@ -77,6 +93,58 @@ async function callOpenRouter(apiKey, model, userPrompt) {
     return content || JSON.stringify(data);
   } catch (e) {
     return JSON.stringify(data);
+  }
+}
+
+// Hugging Face inference fallback
+async function callHuggingFaceFallback(model, userPrompt) {
+  // Map OpenRouter model names to Hugging Face model IDs where reasonable
+  const modelMap = {
+    'mistralai/mistral-7b-instruct': 'mistralai/Mistral-7B-Instruct-v0.2'
+  };
+  const hfModel = modelMap[model] || model.replace('/', '/');
+  const HF_URL = `https://api-inference.huggingface.co/models/${hfModel}`;
+
+  const body = {
+    inputs: userPrompt,
+    parameters: { max_new_tokens: 512, temperature: 0.2 }
+  };
+
+  try {
+    const resp = await fetch(HF_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+        // Note: If you have an HF token, add Authorization: `Bearer ${token}` here.
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!resp.ok) {
+      const txt = await resp.text();
+      console.error('Hugging Face returned non-OK:', resp.status, txt);
+      throw new Error(`Hugging Face error ${resp.status}: ${txt}`);
+    }
+
+    const data = await resp.json();
+    // Hugging Face sometimes returns an array of outputs or an object with generated_text
+    if (Array.isArray(data)) {
+      // Common shape: [{ generated_text: '...' }]
+      if (data[0] && data[0].generated_text) return data[0].generated_text;
+      // Other shape: [{ 'summary_text': '...' }]
+      if (data[0] && typeof data[0] === 'string') return data[0];
+      return JSON.stringify(data);
+    }
+    if (data.generated_text) return data.generated_text;
+    // Some models return { id: ..., object:..., generated_text: '...' }
+    // Or {choices:[{text: '...'}]}
+    if (data.choices && data.choices[0] && data.choices[0].text) return data.choices[0].text;
+
+    // Fallback: stringify whole response
+    return JSON.stringify(data);
+  } catch (err) {
+    console.error('Error calling Hugging Face inference API:', err);
+    throw err;
   }
 }
 
