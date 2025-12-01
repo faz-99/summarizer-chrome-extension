@@ -6,9 +6,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const clearKeyBtn = document.getElementById('clearKeyBtn');
   const proxyUrlEl = document.getElementById('proxyUrl');
   const useDoHEl = document.getElementById('useDoH');
+  const hfTokenEl = document.getElementById('hfToken');
 
   // Load saved. If an apiKey exists, mask the input and disable direct editing to avoid accidental exposure
-  chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl', 'useDoH'], (cfg) => {
+  chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl', 'useDoH', 'hfToken'], (cfg) => {
     if (cfg && cfg.apiKey) {
       apiKeyEl.value = '************';
       apiKeyEl.disabled = true;
@@ -16,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cfg && cfg.model) modelEl.value = cfg.model;
     if (cfg && cfg.proxyUrl) proxyUrlEl.value = cfg.proxyUrl;
     if (cfg && typeof cfg.useDoH !== 'undefined') useDoHEl.checked = !!cfg.useDoH;
+    if (cfg && cfg.hfToken) hfTokenEl.value = cfg.hfToken;
   });
 
   saveBtn.addEventListener('click', () => {
@@ -32,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    chrome.storage.sync.set({ apiKey: raw, model, proxyUrl, useDoH: !!useDoHEl.checked }, () => {
+    chrome.storage.sync.set({ apiKey: raw, model, proxyUrl, useDoH: !!useDoHEl.checked, hfToken: hfTokenEl.value.trim() }, () => {
       saveBtn.textContent = 'Saved';
       // After saving, mask and disable the input
       apiKeyEl.value = '************';

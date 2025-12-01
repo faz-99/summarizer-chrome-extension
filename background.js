@@ -18,21 +18,8 @@ chrome.runtime.onInstalled.addListener(() => {
       contexts: ['selection']
     });
   });
-  // If no API key is set, store a preset key so users don't need to paste it.
-  // NOTE: This embeds a key into the extension's storage on install. Remove or change if you don't want
-  // the key persisted in users' Chrome sync storage.
-  const PRESET_API_KEY = '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';
-  try {
-    chrome.storage.sync.get(['apiKey'], (cfg) => {
-      if (!cfg || !cfg.apiKey) {
-        chrome.storage.sync.set({ apiKey: PRESET_API_KEY }, () => {
-          console.log('Preset API key stored into chrome.storage.sync');
-        });
-      }
-    });
-  } catch (e) {
-    console.warn('Could not set preset API key on install:', e);
-  }
+  // No preset API key is stored on install. Please set your API key in Options or via the
+  // service worker console using chrome.storage.sync.set({ apiKey: 'sk-...' }).
 });
 
 // Helper: call OpenRouter chat completions (or forward via a user-provided proxyUrl)
@@ -141,7 +128,8 @@ async function callHuggingFaceFallback(model, userPrompt) {
     'mistralai/mistral-7b-instruct': 'mistralai/Mistral-7B-Instruct-v0.2'
   };
   const hfModel = modelMap[model] || model.replace('/', '/');
-  const HF_URL = `https://api-inference.huggingface.co/models/${hfModel}`;
+  // New router endpoint (replacement for api-inference):
+  const HF_ROUTER_URL = `https://router.huggingface.co/models/${hfModel}/infer`;
 
   const body = {
     inputs: userPrompt,
@@ -149,12 +137,16 @@ async function callHuggingFaceFallback(model, userPrompt) {
   };
 
   try {
-    const resp = await fetch(HF_URL, {
+    // Try to get an optional HF token from storage (if present) to include in Authorization
+    let hfToken = null;
+    try { const s = await chrome.storage.sync.get(['hfToken']); hfToken = s.hfToken; } catch (e) { /* ignore */ }
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (hfToken) headers['Authorization'] = 'Bearer ' + hfToken;
+
+    const resp = await fetch(HF_ROUTER_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-        // Note: If you have an HF token, add Authorization: `Bearer ${token}` here.
-      },
+      headers,
       body: JSON.stringify(body)
     });
 
@@ -165,18 +157,27 @@ async function callHuggingFaceFallback(model, userPrompt) {
     }
 
     const data = await resp.json();
-    // Hugging Face sometimes returns an array of outputs or an object with generated_text
+
+    // Router may return different shapes. Common ones:
+    // - { generated_text: '...' }
+    // - [{ generated_text: '...' }]
+    // - { data: [ { generated_text: '...' } ] }
+    // - { outputs: [...] }
+    if (!data) return JSON.stringify(data);
+
+    // If top-level generated_text
+    if (data.generated_text && typeof data.generated_text === 'string') return data.generated_text;
+
+    // If array
     if (Array.isArray(data)) {
-      // Common shape: [{ generated_text: '...' }]
       if (data[0] && data[0].generated_text) return data[0].generated_text;
-      // Other shape: [{ 'summary_text': '...' }]
-      if (data[0] && typeof data[0] === 'string') return data[0];
+      if (typeof data[0] === 'string') return data[0];
       return JSON.stringify(data);
     }
-    if (data.generated_text) return data.generated_text;
-    // Some models return { id: ..., object:..., generated_text: '...' }
-    // Or {choices:[{text: '...'}]}
-    if (data.choices && data.choices[0] && data.choices[0].text) return data.choices[0].text;
+
+    // If data.data or outputs
+    if (data.data && Array.isArray(data.data) && data.data[0] && data.data[0].generated_text) return data.data[0].generated_text;
+    if (data.outputs && Array.isArray(data.outputs) && data.outputs[0] && data.outputs[0].generated_text) return data.outputs[0].generated_text;
 
     // Fallback: stringify whole response
     return JSON.stringify(data);
