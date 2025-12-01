@@ -11,7 +11,10 @@
       <h3>Options</h3>
 
       <label for="apiKey">OpenRouter API Key</label>
-      <input id="apiKey" type="password" placeholder="sk-..." />
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="apiKey" type="password" placeholder="(preconfigured or paste here)" />
+        <button id="clearKeyBtn" style="background:#e53e3e">Clear</button>
+      </div>
 
       <label for="model">Model</label>
       <select id="model">
@@ -23,7 +26,7 @@
         <button id="saveBtn">Save</button>
       </div>
 
-      <p class="note">Instructions: Get a (free/tier) API key from OpenRouter, paste it above and save. The extension will store it in Chrome storage.</p>
+  <p class="note">Instructions: An API key may be preconfigured. If you want to replace it, paste a new key above and click Save. Click Clear to remove the stored key.</p>
     </div>
 
     <script src="options.js"></script>
