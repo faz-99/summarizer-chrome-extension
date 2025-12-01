@@ -35,9 +35,12 @@ chrome.runtime.onInstalled.addListener(() => {
   }
 });
 
-// Helper: call OpenRouter chat completions
-async function callOpenRouter(apiKey, model, userPrompt) {
-  if (!apiKey) throw new Error('API key not set in Options');
+// Helper: call OpenRouter chat completions (or forward via a user-provided proxyUrl)
+// If proxyUrl is provided, the request will be POSTed to that URL and the proxy should
+// forward the request to OpenRouter using a server-side API key.
+async function callOpenRouter(apiKey, model, userPrompt, proxyUrl) {
+  // If no apiKey and no proxyUrl, we can't call OpenRouter
+  if (!apiKey && !proxyUrl) throw new Error('API key not set in Options and no proxy configured');
 
   const body = {
     model: model,
@@ -50,12 +53,13 @@ async function callOpenRouter(apiKey, model, userPrompt) {
 
   let resp;
   try {
-    resp = await fetch(OPENROUTER_URL, {
+    const endpoint = proxyUrl || OPENROUTER_URL;
+    const headers = { 'Content-Type': 'application/json' };
+    if (!proxyUrl) headers['Authorization'] = 'Bearer ' + apiKey;
+
+    resp = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + apiKey
-      },
+      headers,
       body: JSON.stringify(body)
     });
   } catch (networkErr) {
@@ -157,14 +161,15 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       const selection = info.selectionText || '';
       if (!selection) return;
 
-      // get API key & model
-      const cfg = await chrome.storage.sync.get(['apiKey', 'model']);
-      const apiKey = cfg.apiKey;
-      const model = cfg.model || 'mistralai/mistral-7b-instruct';
+  // get API key, model & optional proxy URL
+  const cfg = await chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl']);
+  const apiKey = cfg.apiKey;
+  const model = cfg.model || 'mistralai/mistral-7b-instruct';
+  const proxyUrl = cfg.proxyUrl;
 
       const prompt = `Summarize the following text:\n\n${selection}`;
       // call API
-      const result = await callOpenRouter(apiKey, model, prompt);
+  const result = await callOpenRouter(apiKey, model, prompt, proxyUrl);
 
       // send to content script to show overlay
       chrome.tabs.sendMessage(tab.id, { action: 'show_overlay', content: result });
@@ -191,12 +196,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // msg: { prompt, selection }
     (async () => {
       try {
-        const cfg = await chrome.storage.sync.get(['apiKey', 'model']);
-        const apiKey = cfg.apiKey;
-        const model = cfg.model || 'mistralai/mistral-7b-instruct';
+  const cfg = await chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl']);
+  const apiKey = cfg.apiKey;
+  const model = cfg.model || 'mistralai/mistral-7b-instruct';
+  const proxyUrl = cfg.proxyUrl;
 
-        const combined = msg.prompt ? `${msg.prompt}\n\n${msg.selection || ''}` : (msg.selection || '');
-        const result = await callOpenRouter(apiKey, model, combined);
+  const combined = msg.prompt ? `${msg.prompt}\n\n${msg.selection || ''}` : (msg.selection || '');
+  const result = await callOpenRouter(apiKey, model, combined, proxyUrl);
         sendResponse({ ok: true, result });
       } catch (err) {
         sendResponse({ ok: false, error: err.message });

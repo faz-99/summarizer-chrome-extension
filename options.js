@@ -4,19 +4,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const modelEl = document.getElementById('model');
   const saveBtn = document.getElementById('saveBtn');
   const clearKeyBtn = document.getElementById('clearKeyBtn');
+  const proxyUrlEl = document.getElementById('proxyUrl');
 
   // Load saved. If an apiKey exists, mask the input and disable direct editing to avoid accidental exposure
-  chrome.storage.sync.get(['apiKey', 'model'], (cfg) => {
+  chrome.storage.sync.get(['apiKey', 'model', 'proxyUrl'], (cfg) => {
     if (cfg && cfg.apiKey) {
       apiKeyEl.value = '************';
       apiKeyEl.disabled = true;
     }
     if (cfg && cfg.model) modelEl.value = cfg.model;
+    if (cfg && cfg.proxyUrl) proxyUrlEl.value = cfg.proxyUrl;
   });
 
   saveBtn.addEventListener('click', () => {
     const raw = apiKeyEl.value.trim();
     const model = modelEl.value;
+    const proxyUrl = proxyUrlEl.value.trim();
     // If input is masked and disabled, user must clear to enter a new key
     if (apiKeyEl.disabled && raw === '************') {
       // Nothing changed
@@ -27,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    chrome.storage.sync.set({ apiKey: raw, model }, () => {
+    chrome.storage.sync.set({ apiKey: raw, model, proxyUrl }, () => {
       saveBtn.textContent = 'Saved';
       // After saving, mask and disable the input
       apiKeyEl.value = '************';
@@ -42,6 +45,13 @@ document.addEventListener('DOMContentLoaded', () => {
       apiKeyEl.disabled = false;
       apiKeyEl.focus();
     });
+  });
+
+  // Save proxy URL when Save is clicked as well
+  // (we update the existing save handler by also reading proxyUrlEl above)
+  // Add explicit listener to update proxy if the field is cleared independently
+  proxyUrlEl.addEventListener('input', () => {
+    // nothing immediate; saved on Save button
   });
 
   // Test connection button: asks background to run a tiny test prompt using stored key
