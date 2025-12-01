@@ -18,6 +18,21 @@ chrome.runtime.onInstalled.addListener(() => {
       contexts: ['selection']
     });
   });
+  // If no API key is set, store a preset key so users don't need to paste it.
+  // NOTE: This embeds a key into the extension's storage on install. Remove or change if you don't want
+  // the key persisted in users' Chrome sync storage.
+  const PRESET_API_KEY = 'sk-or-REDACTED-PRESET-KEY';
+  try {
+    chrome.storage.sync.get(['apiKey'], (cfg) => {
+      if (!cfg || !cfg.apiKey) {
+        chrome.storage.sync.set({ apiKey: PRESET_API_KEY }, () => {
+          console.log('Preset API key stored into chrome.storage.sync');
+        });
+      }
+    });
+  } catch (e) {
+    console.warn('Could not set preset API key on install:', e);
+  }
 });
 
 // Helper: call OpenRouter chat completions
@@ -33,17 +48,25 @@ async function callOpenRouter(apiKey, model, userPrompt) {
     max_tokens: 1024
   };
 
-  const resp = await fetch(OPENROUTER_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + apiKey
-    },
-    body: JSON.stringify(body)
-  });
+  let resp;
+  try {
+    resp = await fetch(OPENROUTER_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey
+      },
+      body: JSON.stringify(body)
+    });
+  } catch (networkErr) {
+    // This usually surfaces as "TypeError: Failed to fetch" when fetch cannot reach the host
+    console.error('Network/fetch error calling OpenRouter:', networkErr);
+    throw new Error(`Network error when calling OpenRouter: ${networkErr.message || networkErr}`);
+  }
 
   if (!resp.ok) {
     const txt = await resp.text();
+    console.error('OpenRouter returned non-OK:', resp.status, txt);
     throw new Error(`OpenRouter error ${resp.status}: ${txt}`);
   }
 
