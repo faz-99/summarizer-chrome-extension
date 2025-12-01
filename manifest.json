@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Quick Summarizer & Prompt Runner",
+  "version": "1.0",
+  "description": "Highlight text, summarize it or run a custom prompt using OpenRouter (free LLM backends).",
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "scripting",
+    "activeTab",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Summarize / Prompt"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

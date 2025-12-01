@@ -1,0 +1,20 @@
+:root{
+  --bg: #ffffff;
+  --muted: #666;
+  --accent: #1a73e8;
+}
+body{font-family:Segoe UI, Arial, sans-serif; margin:0; padding:12px; width:360px; background:var(--bg); color:#111}
+.container{display:flex;flex-direction:column;gap:8px}
+h3{margin:0 0 4px 0;font-size:16px}
+label{font-size:12px;color:var(--muted)}
+textarea, input, select{width:100%;box-sizing:border-box;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px}
+textarea{resize:vertical}
+button{background:var(--accent);color:#fff;border:none;padding:8px 10px;border-radius:6px;cursor:pointer}
+.row{display:flex;gap:8px}
+pre#output{background:#f7f7f7;border:1px solid #eee;padding:8px;border-radius:6px;min-height:60px;white-space:pre-wrap}
+.footer{display:flex;justify-content:space-between;align-items:center}
+.footer a{font-size:12px;color:var(--accent);text-decoration:none}
+.note{font-size:12px;color:var(--muted)}
+
+/* overlay fallback style (content script adds inline styles too) */
+#quick-summarizer-overlay{font-family:Segoe UI, Arial, sans-serif}
